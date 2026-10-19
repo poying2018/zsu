@@ -81,6 +81,8 @@ jobs:
           KDIR=/opt/ddk/kdir-x64/${{ inputs.kmi }}
           cd kernel
 
+          # The checkout is owned by a different uid inside the container.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           KSU_VERSION=$((30000 + $(git rev-list --count HEAD)))
           KSU_VERSION_TAG=$(git describe --tags --always 2>/dev/null || echo unknown)
           echo "version: $KSU_VERSION ($KSU_VERSION_TAG)"
