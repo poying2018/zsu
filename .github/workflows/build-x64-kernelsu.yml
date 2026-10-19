@@ -88,7 +88,7 @@ jobs:
           echo "version: $KSU_VERSION ($KSU_VERSION_TAG)"
 
           make -k -C "$KDIR" M="$PWD" src="$PWD" ARCH=x86_64 CC=clang LLVM=1 LLVM_IAS=1 \
-            CONFIG_KSU=m \
+            CONFIG_KSU=m CONFIG_KSU_X86_PATCH_SYSCALL_DISPATCHER=y \
             KSU_VERSION="$KSU_VERSION" KSU_VERSION_TAG="$KSU_VERSION_TAG" \
             modules -j"$(nproc)"
 
