@@ -1,0 +1,109 @@
+# Build kernelsu.ko for x86_64 (MuMu / emulator kernels).
+#
+# The DDK images ship a prepared arm64 kdir only, so the x86_64 kdir is
+# generated here from the bundled source, following the same steps the
+# KernelSU-Next CI and the susfs x86_64 port use:
+#   - modpost is patched so symbols resolved at runtime are not rejected
+#   - LTO is disabled (the arm64 gki_defconfig enables it)
+#   - modules_prepare plus the selinux objects produce the headers an
+#     external module build needs
+#
+# The module is built with the upstream default manager identity, which is
+# the zsu manager (cert 0x318 bytes / sha256 ba1159a5...), so a zsu manager
+# installed on the device will be recognised.
+name: build-x64-kernelsu
+
+on:
+  workflow_dispatch:
+    inputs:
+      kmi:
+        description: 'KMI (kernel module interface) to target'
+        required: true
+        default: 'android14-6.1'
+        type: choice
+        options:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+          - android16-6.12
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk-min:${{ inputs.kmi }}-20260828
+      options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare x86_64 kdir
+        run: |
+          set -eu
+          clang --version | head -1
+          unset ARCH CROSS_COMPILE
+          export ARCH=x86_64
+
+          KDIR=/opt/ddk/kdir-x64/${{ inputs.kmi }}
+          mkdir -p "$KDIR"
+
+          pushd /opt/ddk/src/${{ inputs.kmi }}
+
+          # Let the module keep symbols it resolves at runtime.
+          MODPOST=scripts/mod/modpost.c
+          sed -i -E 's/^([[:space:]]*)check_exports\(mod\);/\1\/\/ check_exports(mod);/' "$MODPOST"
+          sed -i -E 's/^([[:space:]]*)s->module = exp->module;/\1\/\/ s->module = exp->module;/' "$MODPOST"
+          sed -i 's/^static void check_exports(/static void __attribute__((unused)) check_exports(/' "$MODPOST"
+          sed -i 's/__version_ext_names\\") =\\n/__version_ext_names\\") = \\"\\"\\n/' "$MODPOST"
+
+          make O="$KDIR" gki_defconfig
+          scripts/config --file "$KDIR/.config" \
+            -d LTO_CLANG -e LTO_NONE -d LTO_CLANG_THIN \
+            -d LTO_CLANG_FULL -d THINLTO
+          make O="$KDIR" modules_prepare
+          make O="$KDIR" security/selinux/built-in.a
+
+          popd
+          echo "kdir ready: $KDIR"
+
+      - name: Build kernelsu.ko (x86_64)
+        run: |
+          set -eu
+          unset ARCH CROSS_COMPILE
+          export ARCH=x86_64
+
+          KDIR=/opt/ddk/kdir-x64/${{ inputs.kmi }}
+          cd kernel
+
+          KSU_VERSION=$((30000 + $(git rev-list --count HEAD)))
+          KSU_VERSION_TAG=$(git describe --tags --always 2>/dev/null || echo unknown)
+          echo "version: $KSU_VERSION ($KSU_VERSION_TAG)"
+
+          make -k -C "$KDIR" M="$PWD" ARCH=x86_64 CC=clang LLVM=1 LLVM_IAS=1 \
+            KSU_VERSION="$KSU_VERSION" KSU_VERSION_TAG="$KSU_VERSION_TAG" \
+            modules -j"$(nproc)"
+
+          ls -la kernelsu.ko
+          llvm-strip -d kernelsu.ko || true
+          cp kernelsu.ko "$GITHUB_WORKSPACE/kernelsu-x86_64-${{ inputs.kmi }}.ko"
+          ls -la "$GITHUB_WORKSPACE"/kernelsu-x86_64-*.ko
+
+      - name: Show module info
+        run: |
+          set -eu
+          KO="$GITHUB_WORKSPACE/kernelsu-x86_64-${{ inputs.kmi }}.ko"
+          strings "$KO" | grep -E '^vermagic|^name=|^license=' || true
+          echo "sha256: $(sha256sum "$KO" | cut -d' ' -f1)"
+
+      - name: Upload module
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernelsu-x86_64-${{ inputs.kmi }}
+          path: kernelsu-x86_64-${{ inputs.kmi }}.ko
+          if-no-files-found: error
