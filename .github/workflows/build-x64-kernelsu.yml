@@ -87,7 +87,7 @@ jobs:
           KSU_VERSION_TAG=$(git describe --tags --always 2>/dev/null || echo unknown)
           echo "version: $KSU_VERSION ($KSU_VERSION_TAG)"
 
-          make -k -C "$KDIR" M="$PWD" ARCH=x86_64 CC=clang LLVM=1 LLVM_IAS=1 \
+          make -k -C "$KDIR" M="$PWD" src="$PWD" ARCH=x86_64 CC=clang LLVM=1 LLVM_IAS=1 \
             KSU_VERSION="$KSU_VERSION" KSU_VERSION_TAG="$KSU_VERSION_TAG" \
             modules -j"$(nproc)"
 
