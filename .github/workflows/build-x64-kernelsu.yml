@@ -63,9 +63,13 @@ jobs:
           sed -i 's/__version_ext_names\\") =\\n/__version_ext_names\\") = \\"\\"\\n/' "$MODPOST"
 
           make O="$KDIR" gki_defconfig
+          # MuMu's kernel is built with these off, so the symbols they emit
+          # (fortify_panic, __list_add_valid, static_key_disable, ...) do not
+          # exist there and the module would fail to load.
           scripts/config --file "$KDIR/.config" \
             -d LTO_CLANG -e LTO_NONE -d LTO_CLANG_THIN \
-            -d LTO_CLANG_FULL -d THINLTO
+            -d LTO_CLANG_FULL -d THINLTO \
+            -d FORTIFY_SOURCE -d DEBUG_LIST -d JUMP_LABEL
           make O="$KDIR" modules_prepare
           make O="$KDIR" security/selinux/built-in.a
 
